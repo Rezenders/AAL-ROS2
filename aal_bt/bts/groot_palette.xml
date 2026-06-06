@@ -1,0 +1,11 @@
+<root BTCPP_format="4">
+    <TreeNodesModel>
+        <Decorator ID="EnsureConfiguration">
+            <input_port name="nodes_to_deactivate_on_exit" type="std::vector&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::allocator&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt; &gt;" default="">Teardown override. Empty=deactivate nodes_to_activate. ["none"]=skip.</input_port>
+            <input_port name="nodes_to_deactivate" type="std::vector&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::allocator&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt; &gt;" default="">Nodes that must be inactive before the child runs</input_port>
+            <input_port name="nodes_to_activate" type="std::vector&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::allocator&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt; &gt;">Nodes that must be active before the child runs</input_port>
+            <input_port name="action_name" type="std::string" default="/reconfigure_system">ReconfigureSystem action server name</input_port>
+        </Decorator>
+    </TreeNodesModel>
+</root>
+

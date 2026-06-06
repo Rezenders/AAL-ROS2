@@ -45,6 +45,18 @@ install(DIRECTORY include/
     DESTINATION include
 )
 
+install(FILES bts/groot_palette.xml
+    DESTINATION share/${PROJECT_NAME}/bts
+)
+
+add_executable(export_node_models tools/export_node_models.cpp)
+ament_target_dependencies(export_node_models behaviortree_cpp)
+target_link_libraries(export_node_models aal_bt_nodes)
+target_include_directories(export_node_models PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+install(TARGETS export_node_models
+    DESTINATION lib/${PROJECT_NAME})
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   find_package(ament_cmake_gtest REQUIRED)

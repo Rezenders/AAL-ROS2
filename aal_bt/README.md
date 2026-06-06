@@ -65,9 +65,21 @@ factory.registerFromPlugin(plugin_path);
 
 The decorator uses `aal_msgs/action/DesiredSystemConfiguration`, whose goal carries an `aal_msgs/msg/DesiredConfiguration`:
 
-```
+```msg
 string[] active_nodes
 string[] inactive_nodes
+```
+
+## Groot palette
+
+`bts/groot_palette.xml` is a committed Groot2 palette describing all custom BT nodes.
+
+In Groot2: **File → Load Model Palette** and select that file (or its installed copy at `share/aal_bt/bts/groot_palette.xml`).
+
+When you add or change ports on a node, regenerate the palette and commit the result:
+
+```bash
+ros2 run aal_bt export_node_models > src/aal/aal_bt/bts/groot_palette.xml
 ```
 
 ## Running Tests
