@@ -1,0 +1,9 @@
+# Goal — what configuration the system should reach
+aal_msgs/DesiredConfiguration desired_configuration
+---
+# Result
+bool success
+string message
+---
+# Feedback
+string current_step
