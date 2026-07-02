@@ -23,7 +23,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
-#include "aal_msgs/action/desired_system_configuration.hpp"
+#include "aal_msgs/action/set_desired_features.hpp"
 
 namespace aal_bt
 {
@@ -44,7 +44,7 @@ namespace aal_bt
 class EnsureConfiguration : public BT::DecoratorNode
 {
 public:
-  using ReconfigureAction = aal_msgs::action::DesiredSystemConfiguration;
+  using ReconfigureAction = aal_msgs::action::SetDesiredFeatures;
   using GoalHandle = rclcpp_action::ClientGoalHandle<ReconfigureAction>;
 
   static constexpr const char * ACTION_NAME_PORT = "action_name";

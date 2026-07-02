@@ -1,0 +1,9 @@
+# Goal — what configuration the system should reach
+aal_msgs/DesiredFeatures desired_features
+---
+# Result
+bool success
+string message  # is this needed?
+---
+# Feedback
+string current_step

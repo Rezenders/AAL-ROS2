@@ -27,19 +27,19 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 
 #include "aal_bt/ensure_configuration.hpp"
-#include "aal_msgs/action/desired_system_configuration.hpp"
+#include "aal_msgs/action/set_desired_features.hpp"
 
 // ─── Aliases ─────────────────────────────────────────────────────────────────
 
-using DSC = aal_msgs::action::DesiredSystemConfiguration;
+using DSC = aal_msgs::action::SetDesiredFeatures;
 using GoalHandleDSC = rclcpp_action::ServerGoalHandle<DSC>;
 
 // ─── Recorded goal data ───────────────────────────────────────────────────────
 
 struct ReceivedGoal
 {
-  std::vector<std::string> active_nodes;
-  std::vector<std::string> inactive_nodes;
+  std::vector<std::string> active_features;
+  std::vector<std::string> inactive_features;
 };
 
 // ─── Mock action server ───────────────────────────────────────────────────────
@@ -78,10 +78,10 @@ public:
 private:
   void execute(std::shared_ptr<GoalHandleDSC> handle)
   {
-    const auto & cfg = handle->get_goal()->desired_configuration;
+    const auto & cfg = handle->get_goal()->desired_features;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      received_goals_.push_back({cfg.active_nodes, cfg.inactive_nodes});
+      received_goals_.push_back({cfg.active_features, cfg.inactive_features});
     }  // releases mutex_
     goals_received_++;
     auto result = std::make_shared<DSC::Result>();
@@ -183,8 +183,8 @@ TEST_F(EnsureConfigurationTest, SetupSuccessChildSuccessDefaultTeardown)
   auto goals = mock_server_->received_goals();
   ASSERT_EQ(goals.size(), 2u);
   // Teardown must deactivate what was activated (default behaviour)
-  EXPECT_EQ(goals[1].inactive_nodes, std::vector<std::string>{"identify_node"});
-  EXPECT_TRUE(goals[1].active_nodes.empty());
+  EXPECT_EQ(goals[1].inactive_features, std::vector<std::string>{"identify_node"});
+  EXPECT_TRUE(goals[1].active_features.empty());
 }
 
 TEST_F(EnsureConfigurationTest, SetupSuccessChildFailureTeardownFires)
@@ -236,7 +236,7 @@ TEST_F(EnsureConfigurationTest, CustomTeardownListUsed)
 
   auto goals = mock_server_->received_goals();
   ASSERT_EQ(goals.size(), 2u);
-  EXPECT_EQ(goals[1].inactive_nodes, std::vector<std::string>{"custom_node_a"});
+  EXPECT_EQ(goals[1].inactive_features, std::vector<std::string>{"custom_node_a"});
 }
 
 TEST_F(EnsureConfigurationTest, SetupGoalCarriesCorrectNodes)
@@ -249,8 +249,8 @@ TEST_F(EnsureConfigurationTest, SetupGoalCarriesCorrectNodes)
 
   auto goals = mock_server_->received_goals();
   ASSERT_EQ(goals.size(), 2u);
-  EXPECT_EQ(goals[0].active_nodes, (std::vector<std::string>{"node_a", "node_b"}));
-  EXPECT_EQ(goals[0].inactive_nodes, std::vector<std::string>{"node_c"});
+  EXPECT_EQ(goals[0].active_features, (std::vector<std::string>{"node_a", "node_b"}));
+  EXPECT_EQ(goals[0].inactive_features, std::vector<std::string>{"node_c"});
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────

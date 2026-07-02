@@ -15,7 +15,7 @@ find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/AdaptArchitectureConcurrent.action"
-  "action/DesiredSystemConfiguration.action"
+  "action/SetDesiredFeatures.action"
   "srv/AdaptArchitectureTactical.srv"
   "srv/AdaptArchitectureExternal.srv"
   "srv/AdaptArchitecture.srv"
@@ -26,6 +26,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ActionNodeDescription.msg"
   "msg/DesiredConfiguration.msg"
   "action/AdaptArchitectureConcurrent.action"
+  "msg/DesiredFeatures.msg"
   DEPENDENCIES builtin_interfaces rcl_interfaces lifecycle_msgs action_msgs
 )
 

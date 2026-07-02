@@ -97,8 +97,8 @@ void EnsureConfiguration::sendGoal(
   resetGoalState();
 
   ReconfigureAction::Goal goal_msg;
-  goal_msg.desired_configuration.active_nodes = to_activate;
-  goal_msg.desired_configuration.inactive_nodes = to_deactivate;
+  goal_msg.desired_features.active_features = to_activate;
+  goal_msg.desired_features.inactive_features = to_deactivate;
 
   auto options = rclcpp_action::Client<ReconfigureAction>::SendGoalOptions{};
 
@@ -226,7 +226,7 @@ void EnsureConfiguration::halt()
   auto teardown = computeTeardownList();
   if (!teardown.empty() && action_client_) {
     ReconfigureAction::Goal goal_msg;
-    goal_msg.desired_configuration.inactive_nodes = teardown;
+    goal_msg.desired_features.inactive_features = teardown;
     // fire-and-forget
     action_client_->async_send_goal(goal_msg);
   }
