@@ -8,8 +8,38 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rcl_interfaces.srv import SetParameters
 from aal.adaptation_strategies import create_strategy
-from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.msg import State, Transition
+from lifecycle_msgs.srv import ChangeState, GetState
 from itertools import product
+
+
+# Ordered transitions needed to drive a node from one primary state to
+# another. DESIREDSTATE adaptations only specify the target steady state, not
+# the transition(s) required to reach it, so this table fills that gap for
+# the state pairs relevant to feature activation/deactivation. Paths through
+# FINALIZED, or involving PRIMARY_STATE_UNKNOWN, are intentionally
+# unsupported.
+_DESIREDSTATE_TRANSITION_PLAN = {
+    (State.PRIMARY_STATE_UNCONFIGURED, State.PRIMARY_STATE_INACTIVE):
+        [Transition.TRANSITION_CONFIGURE],
+    (State.PRIMARY_STATE_UNCONFIGURED, State.PRIMARY_STATE_ACTIVE):
+        [Transition.TRANSITION_CONFIGURE, Transition.TRANSITION_ACTIVATE],
+    (State.PRIMARY_STATE_INACTIVE, State.PRIMARY_STATE_ACTIVE):
+        [Transition.TRANSITION_ACTIVATE],
+    (State.PRIMARY_STATE_INACTIVE, State.PRIMARY_STATE_UNCONFIGURED):
+        [Transition.TRANSITION_CLEANUP],
+    (State.PRIMARY_STATE_ACTIVE, State.PRIMARY_STATE_INACTIVE):
+        [Transition.TRANSITION_DEACTIVATE],
+    (State.PRIMARY_STATE_ACTIVE, State.PRIMARY_STATE_UNCONFIGURED):
+        [Transition.TRANSITION_DEACTIVATE, Transition.TRANSITION_CLEANUP],
+}
+
+_TRANSITION_LABELS = {
+    Transition.TRANSITION_CONFIGURE: 'configure',
+    Transition.TRANSITION_CLEANUP: 'cleanup',
+    Transition.TRANSITION_ACTIVATE: 'activate',
+    Transition.TRANSITION_DEACTIVATE: 'deactivate',
+}
 
 
 def value_from_param(param_msg):
@@ -118,14 +148,30 @@ class AdaptationManager(Node):
         if (node_name.startswith('/')):
             node_name = node_name[1:]
         self.set_parameter_client_dict[node_name] = \
-            self.create_client(SetParameters, '/' + node_name + '/set_parameters',
-                               callback_group=MutuallyExclusiveCallbackGroup())
+            self.create_client(
+                SetParameters, '/' + node_name + '/set_parameters',
+                callback_group=MutuallyExclusiveCallbackGroup()
+            )
 
     def create_change_state_client(self, node_name):
+        if (node_name.startswith('/')):
+            node_name = node_name[1:]
         self.change_state_client_dict[node_name] = \
-            self.create_client(ChangeState,
-                               '/' + node_name + '/change_state',
-                               callback_group=MutuallyExclusiveCallbackGroup())
+            self.create_client(
+                ChangeState,
+                '/' + node_name + '/change_state',
+                callback_group=MutuallyExclusiveCallbackGroup()
+            )
+
+    def create_get_state_client(self, node_name):
+        if (node_name.startswith('/')):
+            node_name = node_name[1:]
+        self.get_state_client_dict[node_name] = \
+            self.create_client(
+                GetState,
+                '/' + node_name + '/get_state',
+                callback_group=MutuallyExclusiveCallbackGroup()
+            )
 
     def execute_rp_adaptation(self, param_msg, node_name):
         if (node_name.startswith('/')):
@@ -163,11 +209,12 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
         return True
 
     def execute_lc_adaptation(self, transition, node_name):
-        self.get_logger().info("\n\n LC adaptation \n\n\n\n\n")
-
         if ((transition is None) or (node_name is None)):
-            self.get_logger().error("Unknown or unspecified type of adaptation")
+            self.get_logger().error('Unknown or unspecified type of adaptation')
             return False
+
+        if (node_name.startswith('/')):
+            node_name = node_name[1:]
 
         if node_name not in self.change_state_client_dict:
             self.create_change_state_client(node_name)
@@ -177,8 +224,6 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
         while not client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('change_state service not available, waiting again...')
 
-        self.get_logger().info("\n\n Sending LC adaptation request\n\n\n\n\n")
-
         req_lc_exec = ChangeState.Request()
         req_lc_exec.transition = transition
 
@@ -187,9 +232,55 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
         if (not response.success):
             self.get_logger().warning('A request to change a state was unsuccessful')
 
-        self.get_logger().info("\n\n\nFinishing LC adaptation\n\n\n\n\n")
-
         return response.success
+
+    def execute_desiredstate_adaptation(self, state_goal, node_name):
+        """
+        Drive a lifecycle node to the requested steady state.
+
+        Unlike STATETRANSITION, DESIREDSTATE only specifies the target
+        primary state (e.g. active/inactive), not the transition to get
+        there, so the current state is queried first and the transition
+        path is looked up in _DESIREDSTATE_TRANSITION_PLAN.
+        """
+        if ((state_goal is None) or (node_name is None)):
+            self.get_logger().error('Unknown or unspecified type of adaptation')
+            return False
+
+        if (node_name.startswith('/')):
+            node_name = node_name[1:]
+
+        if node_name not in self.get_state_client_dict:
+            self.create_get_state_client(node_name)
+
+        client = self.get_state_client_dict[node_name]
+
+        while not client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('get_state service not available, waiting again...')
+
+        current_state_id = client.call(GetState.Request()).current_state.id
+        desired_state_id = state_goal.id
+
+        if current_state_id == desired_state_id:
+            self.get_logger().info('Node already in desired state, nothing to do.')
+            return True
+
+        transition_ids = _DESIREDSTATE_TRANSITION_PLAN.get(
+            (current_state_id, desired_state_id))
+
+        if transition_ids is None:
+            self.get_logger().error(
+                f'No known transition path from state {current_state_id} to '
+                f'{desired_state_id} for node {node_name}')
+            return False
+
+        for transition_id in transition_ids:
+            transition = Transition(
+                id=transition_id, label=_TRANSITION_LABELS[transition_id])
+            if not self.execute_lc_adaptation(transition, node_name):
+                return False
+
+        return True
 
     def execute_adaptation(self, adaptation):
         target_of_adaptation = adaptation.adaptation_target
@@ -202,12 +293,16 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
         elif (target_of_adaptation == Adaptation.CONNECTION):
             return self.execute_rp_adaptation(adaptation.connection_adaptation,
                                               adaptation.node_name)
+        elif (target_of_adaptation == Adaptation.DESIREDSTATE):
+            return self.execute_desiredstate_adaptation(adaptation.lifecycle_state_goal,
+                                                        adaptation.node_name)
 
     def print_adaptation(self, adaptation):
         target_map = {
             Adaptation.STATETRANSITION: "State Transition",
             Adaptation.ROSPARAMETER: "ROS Parameter",
-            Adaptation.CONNECTION: "Connection"
+            Adaptation.CONNECTION: "Connection",
+            Adaptation.DESIREDSTATE: "Desired State",
         }
         target_str = target_map.get(adaptation.adaptation_target, "Unknown")
         self.get_logger().info(f"Adaptation Target: {target_str}")
@@ -220,6 +315,9 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
             param = adaptation.parameter_adaptation
             self.get_logger().info(f"Parameter: name={param.name},\
 value={value_from_param(param)}")
+        elif adaptation.adaptation_target == Adaptation.DESIREDSTATE:
+            state = adaptation.lifecycle_state_goal
+            self.get_logger().info(f"Desired State: id={state.id}, label={state.label}")
         elif adaptation.adaptation_target == Adaptation.CONNECTION:
             conn = adaptation.connection_adaptation
             self.get_logger().info(f"Connection: name={conn.name}, value={value_from_param(conn)}")
@@ -232,9 +330,8 @@ value={value_from_param(param)}")
         for adaptation in request.adaptations:
             self.print_adaptation(adaptation)
 
+        adaptation_results = []
         for adaptation_to_execute in request.adaptations:
-            adaptation_results = []
-
             is_exec_success = self.execute_adaptation(adaptation_to_execute)
 
             adaptation_results.append(is_exec_success)
@@ -301,6 +398,7 @@ filling utility with dummy value")
         # rcl_interfaces/Parameter[] configuration_parameters
         response.applied_adaptations = []
 
+        adaptation_responses = []
         for i in range(len(suggested_configuration.node_names)):
             node_name = suggested_configuration.node_names[i]
             type_of_adaptation = suggested_configuration.adaptation_target_types[i]
@@ -314,7 +412,6 @@ filling utility with dummy value")
             elif (type_of_adaptation == Adaptation.STATETRANSITION):
                 adap.lifecycle_adaptation = suggested_configuration.configuration_transitions[i]
 
-            adaptation_responses = []
             is_exec_success = self.execute_adaptation(adap)
 
             adaptation_responses.append(is_exec_success)
