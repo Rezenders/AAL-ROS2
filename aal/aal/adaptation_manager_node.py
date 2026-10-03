@@ -115,25 +115,24 @@ class AdaptationManager(Node):
         return config_list
 
     def create_set_param_client(self, node_name):
-        if (node_name.startswith('/')):
-            node_name = node_name[1:]
+        node_name = node_name.removeprefix('/')
         self.set_parameter_client_dict[node_name] = \
             self.create_client(SetParameters, '/' + node_name + '/set_parameters',
                                callback_group=MutuallyExclusiveCallbackGroup())
 
     def create_change_state_client(self, node_name):
+        node_name = node_name.removeprefix('/')
         self.change_state_client_dict[node_name] = \
             self.create_client(ChangeState,
                                '/' + node_name + '/change_state',
                                callback_group=MutuallyExclusiveCallbackGroup())
 
     def execute_rp_adaptation(self, param_msg, node_name):
-        if (node_name.startswith('/')):
-            node_name = node_name[1:]
         if ((param_msg is None) or (node_name is None)):
             self.get_logger().error("Unknown or unspecified type of adaptation")
             return False
 
+        node_name = node_name.removeprefix('/')
         if node_name not in self.set_parameter_client_dict:
             self.create_set_param_client(node_name)
 
@@ -169,6 +168,7 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
             self.get_logger().error("Unknown or unspecified type of adaptation")
             return False
 
+        node_name = node_name.removeprefix('/')
         if node_name not in self.change_state_client_dict:
             self.create_change_state_client(node_name)
 
