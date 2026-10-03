@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
+import traceback
+from threading import Event
 from rclpy.node import Node
 from aal_msgs.srv import AdaptArchitectureExternal, AdaptArchitecture, AdaptArchitectureTactical
 from rcl_interfaces.msg import Parameter
@@ -44,6 +46,7 @@ class AdaptationManager(Node):
     def __init__(self):
         super().__init__('adaptation_manager')
 
+        self.declare_parameter('service_timeout', 30.0)
         self.task_to_strategy_map = {}
 
         self.srv_ext_adapt = self.create_service(AdaptArchitectureExternal, self.EXT_SERV_NAME,
@@ -148,10 +151,7 @@ class AdaptationManager(Node):
 
         req_rp_exec.parameters = param_msg
 
-        while not client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('set_param service not available, waiting again...')
-
-        response = client.call(req_rp_exec)
+        response = self._call_service(client, req_rp_exec)
 
         if (not all([res.successful for res in response.results])):
             self.get_logger().warning('One or more requests to set a parameter were unsuccessful \
@@ -174,15 +174,12 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
 
         client = self.change_state_client_dict[node_name]
 
-        while not client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('change_state service not available, waiting again...')
-
         self.get_logger().info("\n\n Sending LC adaptation request\n\n\n\n\n")
 
         req_lc_exec = ChangeState.Request()
         req_lc_exec.transition = transition
 
-        response = client.call(req_lc_exec)
+        response = self._call_service(client, req_lc_exec)
 
         if (not response.success):
             self.get_logger().warning('A request to change a state was unsuccessful')
@@ -190,6 +187,24 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
         self.get_logger().info("\n\n\nFinishing LC adaptation\n\n\n\n\n")
 
         return response.success
+
+    def _call_service(self, client, request):
+        timeout = float(self.get_parameter('service_timeout').value)
+        if timeout <= 0:
+            raise ValueError('service_timeout must be positive')
+        if not client.wait_for_service(timeout_sec=timeout):
+            raise TimeoutError(f'Service unavailable: {client.srv_name}')
+        future = client.call_async(request)
+        completed = Event()
+        future.add_done_callback(lambda _: completed.set())
+        if not completed.wait(timeout):
+            future.cancel()
+            raise TimeoutError(
+                f'Service response timed out: {client.srv_name}; outcome unknown')
+        response = future.result()
+        if response is None:
+            raise RuntimeError(f'No response from {client.srv_name}')
+        return response
 
     def execute_adaptation(self, adaptation):
         target_of_adaptation = adaptation.adaptation_target
@@ -202,6 +217,9 @@ in the Adaptation Manager, see reason(s):' + str(response.results))
         elif (target_of_adaptation == Adaptation.CONNECTION):
             return self.execute_rp_adaptation(adaptation.connection_adaptation,
                                               adaptation.node_name)
+
+        self.get_logger().error(f'Unsupported adaptation target: {target_of_adaptation}')
+        return False
 
     def print_adaptation(self, adaptation):
         target_map = {
@@ -229,18 +247,30 @@ value={value_from_param(param)}")
         # ---
         # bool success
 
+        response.success = False
         for adaptation in request.adaptations:
-            self.print_adaptation(adaptation)
-
-        for adaptation_to_execute in request.adaptations:
-            adaptation_results = []
-
-            is_exec_success = self.execute_adaptation(adaptation_to_execute)
-
-            adaptation_results.append(is_exec_success)
-
-        response.success = all(adaptation_results)
+            if not self._execute_checked(adaptation):
+                return response
+        response.success = True
         return response
+
+    def _execute_checked(self, adaptation):
+        try:
+            self.print_adaptation(adaptation)
+            success = self.execute_adaptation(adaptation)
+        except TimeoutError as exc:
+            self.get_logger().error(f'Adaptation failed for {adaptation.node_name}: {exc}')
+            return False
+        except Exception:
+            self.get_logger().fatal(
+                f'Unexpected adaptation failure for {adaptation.node_name}, '
+                f'target {adaptation.adaptation_target}:\n{traceback.format_exc()}')
+            raise
+        if not success:
+            self.get_logger().error(
+                f'Adaptation rejected for {adaptation.node_name}, '
+                f'target {adaptation.adaptation_target}; stopping batch')
+        return bool(success)
 
     def tac_adaptation_requested(self, request, response):
         self.get_logger().info('\n\n tactical adaptation \n\n')
@@ -251,6 +281,14 @@ value={value_from_param(param)}")
         return response
 
     def ext_adaptation_requested(self, request, response):
+        try:
+            return self._ext_adaptation_requested(request, response)
+        except Exception:
+            self.get_logger().fatal(
+                f'External adaptation failed:\n{traceback.format_exc()}')
+            raise
+
+    def _ext_adaptation_requested(self, request, response):
         # rebet_msgs/AdaptationOptions[] adaptation_space
         # string task_identifier
         # string adaptation_strategy
@@ -314,14 +352,11 @@ filling utility with dummy value")
             elif (type_of_adaptation == Adaptation.STATETRANSITION):
                 adap.lifecycle_adaptation = suggested_configuration.configuration_transitions[i]
 
-            adaptation_responses = []
-            is_exec_success = self.execute_adaptation(adap)
+            if not self._execute_checked(adap):
+                return response
+            response.applied_adaptations.append(adap)
 
-            adaptation_responses.append(is_exec_success)
-            if (is_exec_success):
-                response.applied_adaptations.append(adap)
-
-        response.success = all(adaptation_responses)
+        response.success = True
 
         return response
 
@@ -334,10 +369,17 @@ def main(args=None):
     mt_executor = MultiThreadedExecutor()
     mt_executor.add_node(adapt_manage_node)
 
-    mt_executor.spin()
-
-    adapt_manage_node.destroy_node()
-    rclpy.shutdown()
+    try:
+        mt_executor.spin()
+    except Exception:
+        adapt_manage_node.get_logger().fatal(
+            f'AAL executor failed:\n{traceback.format_exc()}')
+        raise
+    finally:
+        mt_executor.shutdown()
+        adapt_manage_node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
